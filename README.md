@@ -4,6 +4,9 @@ A static toolkit of file utilities — merge PDFs, convert images, run OCR, gene
 
 Founded by **Isaac Lun**.
 
+## Link to try out!
+https://lululunisaac.github.io/File_Studio/
+
 ## Tools included
 
 1. Merge PDF
