@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF to Images — File Studio</title>
+<meta name="description" content="Export every page of a PDF as a PNG image. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2242%22 fill=%22none%22 stroke=%22%23F2F2F0%22 stroke-width=%226%22/><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22none%22 stroke=%22%237C5CFF%22 stroke-width=%226%22/></svg>">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="../index.html"><span class="brand-mark"></span> File Studio</a>
+    <a class="nav-back" href="../index.html#tools">← All tools</a>
+  </div>
+</header>
+
+<main class="tool-page">
+  <div class="tool-header">
+    <div class="wrap">
+      <span class="index-tag">03 — PDF</span>
+      <h1>PDF → Images</h1>
+      <p>Upload a PDF and export every page as a PNG. One page downloads directly; more than one is bundled into a zip.</p>
+    </div>
+  </div>
+
+  <div class="wrap tool-body">
+    <div>
+      <div class="panel">
+        <h3>Upload PDF</h3>
+        <div class="dropzone" id="dz">
+          <p><strong>Click to choose</strong> or drop a PDF file here</p>
+          <input type="file" id="fileInput" accept="application/pdf">
+        </div>
+        <div class="status" id="status"></div>
+        <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+        <div class="thumbs" id="thumbs"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Export</h3>
+        <div class="field">
+          <label for="quality">Resolution</label>
+          <select id="quality">
+            <option value="1.5">Standard</option>
+            <option value="2.5" selected>High</option>
+            <option value="4">Very high</option>
+          </select>
+        </div>
+        <button class="btn btn-accent" id="exportBtn" disabled style="width:100%;justify-content:center;">Export as images</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <span>Founded by <strong>Isaac Lun</strong> — all rights reserved © 2026</span>
+  <span>File Studio — no servers, no tracking, no compromises</span>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="../assets/helpers.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+let currentFile = null;
+const dz = document.getElementById('dz');
+const fileInput = document.getElementById('fileInput');
+const status = document.getElementById('status');
+const exportBtn = document.getElementById('exportBtn');
+const thumbs = document.getElementById('thumbs');
+const progressWrap = document.getElementById('progressWrap');
+const progressBar = document.getElementById('progressBar');
+
+wireDropzone(dz, fileInput, (files)=>{
+  const pdf = files.find(f=> f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+  if (!pdf) return;
+  currentFile = pdf;
+  exportBtn.disabled = false;
+  thumbs.innerHTML = '';
+  setStatus(status, `Loaded "${pdf.name}" (${formatBytes(pdf.size)}).`);
+});
+
+exportBtn.addEventListener('click', async ()=>{
+  if (!currentFile) return;
+  exportBtn.disabled = true;
+  thumbs.innerHTML = '';
+  setStatus(status, 'Rendering pages…');
+  setProgress(progressBar, progressWrap, 5);
+  try{
+    const scale = parseFloat(document.getElementById('quality').value);
+    const bytes = await readFileAsArrayBuffer(currentFile);
+    const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+    const blobs = [];
+
+    for (let i=1;i<=doc.numPages;i++){
+      const page = await doc.getPage(i);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width; canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const blob = await new Promise(res=> canvas.toBlob(res, 'image/png'));
+      blobs.push({ name: `page-${String(i).padStart(2,'0')}.png`, blob });
+
+      const thumbImg = document.createElement('img');
+      thumbImg.src = URL.createObjectURL(blob);
+      thumbs.appendChild(thumbImg);
+
+      setProgress(progressBar, progressWrap, 5 + Math.round((i/doc.numPages)*85));
+    }
+
+    if (blobs.length === 1){
+      downloadBlob(blobs[0].blob, blobs[0].name);
+    } else {
+      const zip = new JSZip();
+      blobs.forEach(b=> zip.file(b.name, b.blob));
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      downloadBlob(zipBlob, 'pages.zip');
+    }
+    setProgress(progressBar, progressWrap, 100);
+    setStatus(status, `Done — ${blobs.length} page${blobs.length>1?'s':''} exported.`, 'ok');
+  }catch(err){
+    console.error(err);
+    setStatus(status, 'Could not read that PDF. Please try another file.', 'err');
+  }
+  exportBtn.disabled = false;
+});
+</script>
+</body>
+</html>

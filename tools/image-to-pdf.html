@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image to PDF — File Studio</title>
+<meta name="description" content="Turn one or more photos into a single PDF. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2242%22 fill=%22none%22 stroke=%22%23F2F2F0%22 stroke-width=%226%22/><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22none%22 stroke=%22%237C5CFF%22 stroke-width=%226%22/></svg>">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="../index.html"><span class="brand-mark"></span> File Studio</a>
+    <a class="nav-back" href="../index.html#tools">← All tools</a>
+  </div>
+</header>
+
+<main class="tool-page">
+  <div class="tool-header">
+    <div class="wrap">
+      <span class="index-tag">02 — IMAGE</span>
+      <h1>Image → PDF</h1>
+      <p>Add one or more photos, put them in order, and export a single PDF — one image per page.</p>
+    </div>
+  </div>
+
+  <div class="wrap tool-body">
+    <div>
+      <div class="panel">
+        <h3>Add images</h3>
+        <div class="dropzone" id="dz">
+          <p><strong>Click to choose</strong> or drop JPG / PNG / WebP files here</p>
+          <input type="file" id="fileInput" accept="image/*" multiple>
+        </div>
+        <div class="thumbs" id="thumbs"></div>
+        <div class="status" id="status"></div>
+        <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Page setup</h3>
+        <div class="field">
+          <label for="pageSize">Page size</label>
+          <select id="pageSize">
+            <option value="fit">Fit to image</option>
+            <option value="a4">A4</option>
+            <option value="letter">US Letter</option>
+          </select>
+        </div>
+        <button class="btn btn-accent" id="buildBtn" disabled style="width:100%;justify-content:center;">Create PDF</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <span>Founded by <strong>Isaac Lun</strong> — all rights reserved © 2026</span>
+  <span>File Studio — no servers, no tracking, no compromises</span>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="../assets/helpers.js"></script>
+<script>
+let files = [];
+const dz = document.getElementById('dz');
+const fileInput = document.getElementById('fileInput');
+const thumbs = document.getElementById('thumbs');
+const buildBtn = document.getElementById('buildBtn');
+const status = document.getElementById('status');
+const progressWrap = document.getElementById('progressWrap');
+const progressBar = document.getElementById('progressBar');
+
+wireDropzone(dz, fileInput, (newFiles)=>{
+  files = files.concat(newFiles.filter(f=> f.type.startsWith('image/')));
+  render();
+});
+
+function render(){
+  thumbs.innerHTML = '';
+  files.forEach((f, i)=>{
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(f);
+    img.title = f.name + ' — click to remove';
+    img.addEventListener('click', ()=>{ files.splice(i,1); render(); });
+    thumbs.appendChild(img);
+  });
+  buildBtn.disabled = files.length === 0;
+  setStatus(status, files.length ? `${files.length} image${files.length>1?'s':''} added — click a thumbnail to remove it.` : '');
+}
+
+buildBtn.addEventListener('click', async ()=>{
+  buildBtn.disabled = true;
+  setStatus(status, 'Building PDF…');
+  setProgress(progressBar, progressWrap, 10);
+  try{
+    const { PDFDocument } = PDFLib;
+    const pdf = await PDFDocument.create();
+    const sizeMode = document.getElementById('pageSize').value;
+    const PAGE = { a4: [595.28, 841.89], letter: [612, 792] };
+
+    for (let i=0;i<files.length;i++){
+      const bytes = await readFileAsArrayBuffer(files[i]);
+      const isPng = files[i].type === 'image/png';
+      let embedded;
+      try{
+        embedded = isPng ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+      }catch(e){
+        // Fallback: re-encode via canvas for formats like webp
+        const dataUrl = await readFileAsDataURL(files[i]);
+        const encoded = await reencodeAsJpeg(dataUrl);
+        embedded = await pdf.embedJpg(encoded);
+      }
+      const { width, height } = embedded;
+
+      let pageW, pageH, drawW, drawH, x, y;
+      if (sizeMode === 'fit'){
+        pageW = width; pageH = height;
+        drawW = width; drawH = height; x = 0; y = 0;
+      } else {
+        [pageW, pageH] = PAGE[sizeMode];
+        const scale = Math.min(pageW/width, pageH/height);
+        drawW = width*scale; drawH = height*scale;
+        x = (pageW-drawW)/2; y = (pageH-drawH)/2;
+      }
+      const page = pdf.addPage([pageW, pageH]);
+      page.drawImage(embedded, { x, y, width: drawW, height: drawH });
+      setProgress(progressBar, progressWrap, 10 + Math.round(((i+1)/files.length)*80));
+    }
+
+    const outBytes = await pdf.save();
+    downloadBlob(new Blob([outBytes], {type:'application/pdf'}), 'images.pdf');
+    setProgress(progressBar, progressWrap, 100);
+    setStatus(status, 'Done — your PDF has been downloaded.', 'ok');
+  }catch(err){
+    console.error(err);
+    setStatus(status, 'Something went wrong building the PDF. Please try different images.', 'err');
+  }
+  buildBtn.disabled = false;
+});
+
+function reencodeAsJpeg(dataUrl){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(img,0,0);
+      canvas.toBlob(async (blob)=>{
+        resolve(new Uint8Array(await blob.arrayBuffer()));
+      }, 'image/jpeg', 0.92);
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+</script>
+</body>
+</html>

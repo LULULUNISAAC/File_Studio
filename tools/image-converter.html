@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Converter — File Studio</title>
+<meta name="description" content="Convert between JPG, PNG and WebP, and adjust quality. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2242%22 fill=%22none%22 stroke=%22%23F2F2F0%22 stroke-width=%226%22/><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22none%22 stroke=%22%237C5CFF%22 stroke-width=%226%22/></svg>">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="../index.html"><span class="brand-mark"></span> File Studio</a>
+    <a class="nav-back" href="../index.html#tools">← All tools</a>
+  </div>
+</header>
+
+<main class="tool-page">
+  <div class="tool-header">
+    <div class="wrap">
+      <span class="index-tag">06 — IMAGE</span>
+      <h1>Image Converter</h1>
+      <p>Convert one or more images between JPG, PNG and WebP, and control the output quality.</p>
+    </div>
+  </div>
+
+  <div class="wrap tool-body">
+    <div>
+      <div class="panel">
+        <h3>Add images</h3>
+        <div class="dropzone" id="dz">
+          <p><strong>Click to choose</strong> or drop images here</p>
+          <input type="file" id="fileInput" accept="image/*" multiple>
+        </div>
+        <ul class="file-list" id="fileList"></ul>
+        <div class="status" id="status"></div>
+        <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Convert to</h3>
+        <div class="field">
+          <label for="format">Output format</label>
+          <select id="format">
+            <option value="image/jpeg">JPG</option>
+            <option value="image/png">PNG</option>
+            <option value="image/webp">WebP</option>
+          </select>
+        </div>
+        <div class="field" id="qualityField">
+          <label for="qualityRange">Quality</label>
+          <input type="range" id="qualityRange" min="10" max="100" value="90">
+          <div class="range-row"><span>Smaller file</span><span id="qualityVal">90%</span><span>Higher quality</span></div>
+        </div>
+        <button class="btn btn-accent" id="convertBtn" disabled style="width:100%;justify-content:center;">Convert</button>
+        <div class="note"><strong>Note.</strong> Multiple images download as a single zip file.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <span>Founded by <strong>Isaac Lun</strong> — all rights reserved © 2026</span>
+  <span>File Studio — no servers, no tracking, no compromises</span>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="../assets/helpers.js"></script>
+<script>
+let files = [];
+const dz = document.getElementById('dz');
+const fileInput = document.getElementById('fileInput');
+const fileList = document.getElementById('fileList');
+const convertBtn = document.getElementById('convertBtn');
+const status = document.getElementById('status');
+const qualityRange = document.getElementById('qualityRange');
+const qualityVal = document.getElementById('qualityVal');
+const qualityField = document.getElementById('qualityField');
+const formatSel = document.getElementById('format');
+const progressWrap = document.getElementById('progressWrap');
+const progressBar = document.getElementById('progressBar');
+
+qualityRange.addEventListener('input', ()=> qualityVal.textContent = qualityRange.value + '%');
+formatSel.addEventListener('change', ()=>{
+  qualityField.style.display = formatSel.value === 'image/png' ? 'none' : 'block';
+});
+
+wireDropzone(dz, fileInput, (newFiles)=>{
+  files = files.concat(newFiles.filter(f=> f.type.startsWith('image/')));
+  render();
+});
+
+function render(){
+  fileList.innerHTML = '';
+  files.forEach((f,i)=>{
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="fname">${f.name}</span><span class="fsize">${formatBytes(f.size)}</span><button aria-label="Remove">✕</button>`;
+    li.querySelector('button').addEventListener('click', ()=>{ files.splice(i,1); render(); });
+    fileList.appendChild(li);
+  });
+  convertBtn.disabled = files.length === 0;
+  setStatus(status, files.length ? `${files.length} image${files.length>1?'s':''} ready.` : '');
+}
+
+function extFor(mime){ return mime === 'image/jpeg' ? 'jpg' : mime === 'image/png' ? 'png' : 'webp'; }
+
+function convertOne(file, mime, quality){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (mime === 'image/jpeg'){ ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height); }
+      ctx.drawImage(img,0,0);
+      canvas.toBlob((blob)=> blob ? resolve(blob) : reject(new Error('conversion failed')), mime, quality);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+convertBtn.addEventListener('click', async ()=>{
+  convertBtn.disabled = true;
+  setStatus(status, 'Converting…');
+  setProgress(progressBar, progressWrap, 10);
+  try{
+    const mime = formatSel.value;
+    const quality = parseInt(qualityRange.value)/100;
+    const ext = extFor(mime);
+    const results = [];
+    for (let i=0;i<files.length;i++){
+      const blob = await convertOne(files[i], mime, quality);
+      const base = files[i].name.replace(/\.[^/.]+$/, '');
+      results.push({ name: `${base}.${ext}`, blob });
+      setProgress(progressBar, progressWrap, 10 + Math.round(((i+1)/files.length)*80));
+    }
+    if (results.length === 1){
+      downloadBlob(results[0].blob, results[0].name);
+    } else {
+      const zip = new JSZip();
+      results.forEach(r=> zip.file(r.name, r.blob));
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      downloadBlob(zipBlob, 'converted-images.zip');
+    }
+    setProgress(progressBar, progressWrap, 100);
+    setStatus(status, 'Done — your converted image(s) have been downloaded.', 'ok');
+  }catch(err){
+    console.error(err);
+    setStatus(status, 'Something went wrong during conversion. Please try again.', 'err');
+  }
+  convertBtn.disabled = false;
+});
+</script>
+</body>
+</html>
