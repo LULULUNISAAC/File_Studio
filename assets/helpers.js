@@ -1,4 +1,4 @@
-// Small shared helpers — no analytics, no network calls, nothing phones home.
+// Small shared helpers
 
 function formatBytes(bytes){
   if (bytes === 0) return '0 B';
