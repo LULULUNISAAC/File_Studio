@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign PDF — File Studio</title>
+<meta name="description" content="Draw or type a signature and place it on a PDF page. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2242%22 fill=%22none%22 stroke=%22%23F2F2F0%22 stroke-width=%226%22/><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22none%22 stroke=%22%237C5CFF%22 stroke-width=%226%22/></svg>">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-base="../">
+
+<header id="chrome-nav"></header>
+
+<main class="tool-page">
+  <div class="tool-header">
+    <div class="wrap">
+      <span class="kicker">Protect</span>
+      <h1>Sign PDF</h1>
+      <p>Draw your signature, type it, or use a scan of one. Then click the spot on the page where it belongs.</p>
+    </div>
+  </div>
+
+  <div class="wrap tool-body">
+    <div>
+      <div class="panel">
+        <h3>Document</h3>
+        <div class="pager" id="pager" style="display:none;">
+          <button class="btn btn-ghost btn-sm" id="prev">← Previous</button>
+          <span id="pageLabel">Page 1 of 1</span>
+          <button class="btn btn-ghost btn-sm" id="next">Next →</button>
+        </div>
+        <div class="dropzone" id="dz" role="button">
+          <p><strong>Click to choose</strong> or drop a PDF file here</p>
+          <input type="file" id="fileInput" accept="application/pdf">
+        </div>
+        <div class="editor" id="editor" style="display:none;">
+          <div class="editor-stage" id="stage">
+            <canvas id="view"></canvas>
+            <div class="editor-overlay" id="overlay" style="cursor:copy;"></div>
+          </div>
+        </div>
+        <div class="status" id="status"></div>
+        <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Your signature</h3>
+        <div class="tabs" id="tabs">
+          <button class="tab on" data-mode="draw">Draw</button>
+          <button class="tab" data-mode="type">Type</button>
+          <button class="tab" data-mode="image">Upload</button>
+        </div>
+
+        <div id="drawPane">
+          <canvas class="sig-pad" id="pad" width="600" height="220"></canvas>
+          <div style="display:flex;gap:10px;margin-top:12px;">
+            <button class="btn btn-ghost btn-sm" id="clearPad">Clear</button>
+            <button class="btn btn-ghost btn-sm" id="usePad">Use this signature</button>
+          </div>
+        </div>
+
+        <div id="typePane" style="display:none;">
+          <div class="field"><label for="typed">Name</label><input type="text" id="typed" placeholder="Isaac Lun"></div>
+          <div class="field"><label for="face">Style</label>
+            <select id="face">
+              <option value="'Brush Script MT','Snell Roundhand',cursive">Handwritten</option>
+              <option value="Georgia,'Times New Roman',serif">Formal serif</option>
+              <option value="'Inter',sans-serif">Plain</option>
+            </select>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="useTyped">Use this signature</button>
+        </div>
+
+        <div id="imagePane" style="display:none;">
+          <div class="dropzone" id="sigDz" role="button">
+            <p><strong>Click to choose</strong> a PNG or JPG of your signature</p>
+            <input type="file" id="sigInput" accept="image/*">
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:18px;">
+          <label for="sigSize">Size on the page</label>
+          <input type="range" id="sigSize" min="8" max="60" value="26">
+          <div class="range-row"><span>Small</span><span id="sigSizeVal">26% of page width</span><span>Large</span></div>
+        </div>
+
+        <button class="btn btn-accent btn-block" id="saveBtn" disabled>Save signed PDF</button>
+        <div class="note"><strong>Note.</strong> This places a visible signature image, which is what most documents ask for. It is not a cryptographic digital certificate.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<section class="related" id="related"></section>
+<footer id="chrome-footer"></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="../assets/helpers.js"></script>
+<script>
+usePdfJs();
+let file = null, doc = null, pageNo = 1, total = 0, sigPng = null, placements = [];
+const dz = document.getElementById('dz'), fileInput = document.getElementById('fileInput');
+const status = document.getElementById('status'), saveBtn = document.getElementById('saveBtn');
+const progressWrap = document.getElementById('progressWrap'), progressBar = document.getElementById('progressBar');
+const editor = document.getElementById('editor'), stage = document.getElementById('stage');
+const view = document.getElementById('view'), overlay = document.getElementById('overlay');
+const pager = document.getElementById('pager'), pageLabel = document.getElementById('pageLabel');
+const sizeRange = document.getElementById('sigSize'), sizeVal = document.getElementById('sigSizeVal');
+
+sizeRange.addEventListener('input', ()=>{ sizeVal.textContent = sizeRange.value + '% of page width'; refresh(); });
+
+document.querySelectorAll('#tabs .tab').forEach(t=> t.addEventListener('click', ()=>{
+  document.querySelectorAll('#tabs .tab').forEach(x=> x.classList.toggle('on', x===t));
+  drawPane.style.display = t.dataset.mode === 'draw' ? 'block' : 'none';
+  typePane.style.display = t.dataset.mode === 'type' ? 'block' : 'none';
+  imagePane.style.display = t.dataset.mode === 'image' ? 'block' : 'none';
+}));
+
+/* --- signature pad --- */
+const pad = document.getElementById('pad'), pctx = pad.getContext('2d');
+let drawing = false;
+pctx.lineWidth = 3; pctx.lineCap = 'round'; pctx.lineJoin = 'round'; pctx.strokeStyle = '#111';
+function padPos(e){ const r = pad.getBoundingClientRect(); return { x:(e.clientX-r.left)*(pad.width/r.width), y:(e.clientY-r.top)*(pad.height/r.height) }; }
+pad.addEventListener('pointerdown', (e)=>{ drawing = true; const p = padPos(e); pctx.beginPath(); pctx.moveTo(p.x,p.y); pad.setPointerCapture(e.pointerId); });
+pad.addEventListener('pointermove', (e)=>{ if (!drawing) return; const p = padPos(e); pctx.lineTo(p.x,p.y); pctx.stroke(); });
+pad.addEventListener('pointerup', ()=> drawing = false);
+document.getElementById('clearPad').onclick = ()=> pctx.clearRect(0,0,pad.width,pad.height);
+document.getElementById('usePad').onclick = ()=>{
+  sigPng = trim(pad);
+  setStatus(status, sigPng ? 'Signature ready — click on the page to place it.' : 'The pad is empty — draw your signature first.', sigPng ? 'ok' : 'err');
+  refresh();
+};
+
+document.getElementById('useTyped').onclick = ()=>{
+  const text = document.getElementById('typed').value.trim();
+  if (!text){ setStatus(status, 'Type a name first.', 'err'); return; }
+  const c = document.createElement('canvas'); c.width = 900; c.height = 260;
+  const x = c.getContext('2d');
+  x.fillStyle = '#111'; x.textBaseline = 'middle'; x.textAlign = 'center';
+  x.font = `86px ${document.getElementById('face').value}`;
+  x.fillText(text, c.width/2, c.height/2);
+  sigPng = trim(c);
+  setStatus(status, 'Signature ready — click on the page to place it.', 'ok');
+  refresh();
+};
+
+wireDropzone(document.getElementById('sigDz'), document.getElementById('sigInput'), async (fs)=>{
+  const f = fs.find(x=> x.type.startsWith('image/')); if (!f) return;
+  const url = await readFileAsDataURL(f);
+  const img = new Image();
+  img.onload = ()=>{
+    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+    c.getContext('2d').drawImage(img,0,0);
+    sigPng = c.toDataURL('image/png');
+    setStatus(status, 'Signature ready — click on the page to place it.', 'ok');
+    refresh();
+  };
+  img.src = url;
+});
+
+/* crop transparent margins so placement feels tight */
+function trim(canvas){
+  const ctx = canvas.getContext('2d');
+  const d = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+  let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0, found = false;
+  for (let y=0;y<canvas.height;y++) for (let x=0;x<canvas.width;x++){
+    if (d[(y*canvas.width + x)*4 + 3] > 12){
+      found = true;
+      if (x<minX) minX=x; if (x>maxX) maxX=x; if (y<minY) minY=y; if (y>maxY) maxY=y;
+    }
+  }
+  if (!found) return null;
+  const pad = 8;
+  const out = document.createElement('canvas');
+  out.width = (maxX-minX) + pad*2; out.height = (maxY-minY) + pad*2;
+  out.getContext('2d').drawImage(canvas, minX-pad, minY-pad, out.width, out.height, 0, 0, out.width, out.height);
+  return out.toDataURL('image/png');
+}
+
+/* --- document --- */
+wireDropzone(dz, fileInput, async (fs)=>{
+  const f = fs.find(isPdf); if (!f) return;
+  try{
+    doc = await loadPdfJsDoc(f);
+    file = f; total = doc.numPages; pageNo = 1; placements = [];
+    editor.style.display = 'block'; pager.style.display = 'flex'; saveBtn.disabled = false;
+    await showPage();
+    setStatus(status, `"${f.name}" — ${total} pages.`, 'ok');
+  }catch(e){ setStatus(status, 'That PDF could not be opened. It may be password-protected.', 'err'); }
+});
+
+async function showPage(){
+  const page = await doc.getPage(pageNo);
+  const vp = page.getViewport({ scale: 1.4 });
+  view.width = Math.floor(vp.width); view.height = Math.floor(vp.height);
+  stage.style.width = Math.min(vp.width, 760) + 'px';
+  await page.render({ canvasContext: view.getContext('2d'), viewport: vp }).promise;
+  pageLabel.textContent = `Page ${pageNo} of ${total}`;
+  refresh();
+}
+
+function refresh(){
+  overlay.innerHTML = '';
+  placements.filter(p=> p.page === pageNo).forEach(p=>{
+    const el = document.createElement('div');
+    el.className = 'mark sig';
+    el.style.cssText = `left:${(p.x - p.w/2)*100}%;top:${(p.y - p.h/2)*100}%;width:${p.w*100}%;height:${p.h*100}%;`;
+    el.innerHTML = `<img src="${p.png}" alt="Signature">`;
+    const x = document.createElement('button');
+    x.className = 'x'; x.textContent = '✕';
+    x.onclick = (e)=>{ e.stopPropagation(); placements.splice(placements.indexOf(p),1); refresh(); };
+    el.appendChild(x);
+    overlay.appendChild(el);
+  });
+}
+
+overlay.addEventListener('click', (e)=>{
+  if (!sigPng){ setStatus(status, 'Make a signature on the right first, then click the page.', 'err'); return; }
+  if (e.target !== overlay) return;
+  const r = overlay.getBoundingClientRect();
+  const img = new Image();
+  img.onload = ()=>{
+    const w = parseInt(sizeRange.value)/100;
+    const h = w * (img.height/img.width) * (view.width/view.height);
+    placements.push({ page: pageNo, x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height, w, h, png: sigPng, ratio: img.height/img.width });
+    refresh();
+    setStatus(status, `${placements.length} signature${placements.length>1?'s':''} placed.`, 'ok');
+  };
+  img.src = sigPng;
+});
+
+document.getElementById('prev').onclick = async ()=>{ if (pageNo>1){ pageNo--; await showPage(); } };
+document.getElementById('next').onclick = async ()=>{ if (pageNo<total){ pageNo++; await showPage(); } };
+
+saveBtn.addEventListener('click', async ()=>{
+  if (!file) return;
+  if (!placements.length){ setStatus(status, 'Place your signature on the page before saving.', 'err'); return; }
+  saveBtn.disabled = true;
+  setProgress(progressBar, progressWrap, 25);
+  setStatus(status, 'Signing…');
+  try{
+    const { PDFDocument } = PDFLib;
+    const pdf = await PDFDocument.load(await readFileAsArrayBuffer(file));
+    const cache = {};
+    for (const p of placements){
+      if (!cache[p.png]){
+        const bytes = await (await fetch(p.png)).arrayBuffer();
+        cache[p.png] = await pdf.embedPng(bytes);
+      }
+      const page = pdf.getPage(p.page - 1);
+      const { width, height } = page.getSize();
+      const w = width * p.w, h = w * p.ratio;
+      page.drawImage(cache[p.png], { x: width*p.x - w/2, y: height*(1-p.y) - h/2, width: w, height: h });
+    }
+    downloadBlob(new Blob([await pdf.save()], {type:'application/pdf'}), baseName(file.name) + '-signed.pdf');
+    setProgress(progressBar, progressWrap, 100);
+    setStatus(status, 'Signed PDF saved.', 'ok');
+  }catch(e){ console.error(e); setStatus(status, 'Could not write to that PDF. It may be password-protected.', 'err'); }
+  saveBtn.disabled = false;
+});
+</script>
+</body>
+</html>

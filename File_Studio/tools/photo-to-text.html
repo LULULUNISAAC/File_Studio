@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Photo to Text (OCR) — File Studio</title>
+<meta name="description" content="Extract readable text from a photo or scan using on-device OCR. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2242%22 fill=%22none%22 stroke=%22%23F2F2F0%22 stroke-width=%226%22/><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22none%22 stroke=%22%237C5CFF%22 stroke-width=%226%22/></svg>">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-base="../">
+
+<header id="chrome-nav"></header>
+
+<main class="tool-page">
+  <div class="tool-header">
+    <div class="wrap">
+      <span class="kicker">Everything else</span>
+      <h1>Photo → Text</h1>
+      <p>Read the words out of a photo or scan. The recognition engine runs on your device, so the picture stays with you.</p>
+    </div>
+  </div>
+
+  <div class="wrap tool-body">
+    <div>
+      <div class="panel">
+        <h3>Upload image</h3>
+        <div class="dropzone" id="dz" role="button">
+          <p><strong>Click to choose</strong> or drop a JPG / PNG image here</p>
+          <input type="file" id="fileInput" accept="image/*">
+        </div>
+        <div id="preview" style="margin-top:16px;"></div>
+        <div class="status" id="status"></div>
+        <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+        <div class="field" style="margin-top:16px;">
+          <label for="lang">Language</label>
+          <select id="lang">
+            <option value="eng" selected>English</option>
+            <option value="fra">French</option>
+            <option value="deu">German</option>
+            <option value="spa">Spanish</option>
+            <option value="por">Portuguese</option>
+            <option value="ita">Italian</option>
+            <option value="nld">Dutch</option>
+            <option value="chi_sim">Chinese (simplified)</option>
+            <option value="jpn">Japanese</option>
+            <option value="kor">Korean</option>
+            <option value="ara">Arabic</option>
+            <option value="rus">Russian</option>
+          </select>
+        </div>
+        <button class="btn btn-accent btn-block" id="scanBtn" disabled>Extract text</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Extracted text</h3>
+        <div class="output-empty" id="empty">Your extracted text will appear here.</div>
+        <pre class="ocr-out" id="ocrOut" style="display:none;"></pre>
+        <div style="display:flex;gap:10px;margin-top:16px;">
+          <button class="btn btn-ghost" id="copyBtn" style="display:none;">Copy text</button>
+          <button class="btn btn-ghost" id="downloadBtn" style="display:none;">Download .txt</button>
+        </div>
+        <div class="note"><strong>Check the result.</strong> Recognition is a best guess: handwriting, low contrast, unusual fonts and skewed photos all cause mistakes. Read it through before you rely on it. The first run in a new language downloads that language's data file — the picture itself is never uploaded.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<section class="related" id="related"></section>
+<footer id="chrome-footer"></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
+<script src="../assets/helpers.js"></script>
+<script>
+let currentFile = null;
+const dz = document.getElementById('dz'), fileInput = document.getElementById('fileInput');
+const preview = document.getElementById('preview'), status = document.getElementById('status');
+const scanBtn = document.getElementById('scanBtn'), empty = document.getElementById('empty');
+const ocrOut = document.getElementById('ocrOut');
+const copyBtn = document.getElementById('copyBtn'), downloadBtn = document.getElementById('downloadBtn');
+const progressWrap = document.getElementById('progressWrap'), progressBar = document.getElementById('progressBar');
+
+wireDropzone(dz, fileInput, (files)=>{
+  const img = files.find(f=> f.type.startsWith('image/'));
+  if (!img) return;
+  currentFile = img;
+  preview.innerHTML = `<img src="${URL.createObjectURL(img)}" alt="Uploaded image" style="max-width:100%;border-radius:8px;border:1px solid var(--line);">`;
+  scanBtn.disabled = false;
+  setStatus(status, `"${img.name}" (${formatBytes(img.size)}) loaded.`, 'ok');
+});
+
+scanBtn.addEventListener('click', async ()=>{
+  if (!currentFile) return;
+  scanBtn.disabled = true;
+  setStatus(status, 'Preparing…');
+  setProgress(progressBar, progressWrap, 5);
+  try{
+    const lang = document.getElementById('lang').value;
+    const result = await Tesseract.recognize(currentFile, lang, {
+      logger: (m)=>{
+        if (m.status === 'recognizing text'){
+          setProgress(progressBar, progressWrap, 5 + Math.round(m.progress*90));
+          setStatus(status, `Reading the image… ${Math.round(m.progress*100)}%`);
+        } else setStatus(status, m.status.charAt(0).toUpperCase() + m.status.slice(1) + '…');
+      }
+    });
+    const text = result.data.text.trim();
+    empty.style.display = 'none';
+    ocrOut.style.display = 'block';
+    ocrOut.textContent = text || '(No text was found in this image.)';
+    copyBtn.style.display = downloadBtn.style.display = 'inline-flex';
+    setProgress(progressBar, progressWrap, 100);
+    setStatus(status, 'Done — read it through for mistakes.', 'ok');
+  }catch(e){ console.error(e); setStatus(status, 'That image could not be read. Try a sharper or straighter photo.', 'err'); }
+  scanBtn.disabled = false;
+});
+
+copyBtn.addEventListener('click', async ()=>{
+  await navigator.clipboard.writeText(ocrOut.textContent);
+  setStatus(status, 'Copied to clipboard.', 'ok');
+});
+downloadBtn.addEventListener('click', ()=>{
+  downloadBlob(new Blob([ocrOut.textContent], { type:'text/plain' }), 'extracted-text.txt');
+});
+</script>
+</body>
+</html>

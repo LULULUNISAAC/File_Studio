@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF to HTML — File Studio</title>
+<meta name="description" content="Turn a PDF into a self-contained web page. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2242%22 fill=%22none%22 stroke=%22%23F2F2F0%22 stroke-width=%226%22/><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22none%22 stroke=%22%237C5CFF%22 stroke-width=%226%22/></svg>">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-base="../">
+
+<header id="chrome-nav"></header>
+
+<main class="tool-page">
+  <div class="tool-header">
+    <div class="wrap">
+      <span class="kicker">From PDF</span>
+      <h1>PDF → HTML</h1>
+      <p>Get a single self-contained web page: every PDF page rebuilt with its text where it sits, ready to publish or search.</p>
+    </div>
+  </div>
+
+  <div class="wrap tool-body">
+    <div>
+      <div class="panel">
+        <h3>Upload PDF</h3>
+        <div class="dropzone" id="dz" role="button">
+          <p><strong>Click to choose</strong> or drop a PDF file here</p>
+          <input type="file" id="fileInput" accept="application/pdf">
+        </div>
+        <div class="status" id="status"></div>
+        <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Output</h3>
+        <div class="tabs" id="tabs">
+          <button class="tab on" data-mode="layout">Keep the layout</button>
+          <button class="tab" data-mode="flow">Flowing text</button>
+        </div>
+        <p class="panel-hint" id="modeHint">Each page is rebuilt at its real size, with every line where the PDF puts it — closest to the original.</p>
+        <div class="check" id="bgRow"><input type="checkbox" id="bg"><label for="bg" style="margin:0;">Include a picture of each page behind the text</label></div>
+        <button class="btn btn-accent btn-block" id="goBtn" disabled>Save .html</button>
+        <div class="note"><strong>Self-contained.</strong> The file you get has its styles and any page pictures embedded — open it anywhere, no folder of assets required. Fonts are substituted with the closest ones your reader already has.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<section class="related" id="related"></section>
+<footer id="chrome-footer"></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="../assets/helpers.js"></script>
+<script>
+usePdfJs();
+let file = null, mode = 'layout';
+const dz = document.getElementById('dz'), fileInput = document.getElementById('fileInput');
+const status = document.getElementById('status'), goBtn = document.getElementById('goBtn');
+const progressWrap = document.getElementById('progressWrap'), progressBar = document.getElementById('progressBar');
+const hint = document.getElementById('modeHint'), bgRow = document.getElementById('bgRow');
+
+document.querySelectorAll('#tabs .tab').forEach(t=> t.addEventListener('click', ()=>{
+  document.querySelectorAll('#tabs .tab').forEach(x=> x.classList.toggle('on', x===t));
+  mode = t.dataset.mode;
+  hint.textContent = mode === 'layout'
+    ? 'Each page is rebuilt at its real size, with every line where the PDF puts it — closest to the original.'
+    : 'Text is poured into ordinary paragraphs that reflow on a phone — best for reading and searching.';
+  bgRow.style.display = mode === 'layout' ? 'flex' : 'none';
+}));
+
+wireDropzone(dz, fileInput, (fs)=>{
+  const f = fs.find(isPdf); if (!f) return;
+  file = f; goBtn.disabled = false;
+  setStatus(status, `"${f.name}" ready.`, 'ok');
+});
+
+function esc(s){ return String(s).replace(/[<>&]/g, c=> ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])); }
+
+goBtn.addEventListener('click', async ()=>{
+  if (!file) return;
+  goBtn.disabled = true;
+  setStatus(status, 'Rebuilding pages…');
+  setProgress(progressBar, progressWrap, 5);
+  try{
+    const doc = await loadPdfJsDoc(file);
+    const withBg = mode === 'layout' && document.getElementById('bg').checked;
+    let body = '';
+    for (let i=1;i<=doc.numPages;i++){
+      const page = await doc.getPage(i);
+      const vp = page.getViewport({ scale: 1 });
+      const content = await page.getTextContent();
+      if (mode === 'layout'){
+        let bgCss = '';
+        if (withBg){
+          const canvas = await renderPageToCanvas(page, 1.6);
+          bgCss = `background-image:url(${canvas.toDataURL('image/jpeg', 0.75)});background-size:100% 100%;`;
+        }
+        const spans = content.items.filter(it=> it.str.trim()).map(it=>{
+          const size = Math.hypot(it.transform[0], it.transform[1]) || 11;
+          const x = it.transform[4], y = vp.height - it.transform[5] - size;
+          return `<span style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;font-size:${size.toFixed(1)}px;">${esc(it.str)}</span>`;
+        }).join('');
+        body += `<section class="page" style="width:${vp.width}px;height:${vp.height}px;${bgCss}">${spans}</section>`;
+      } else {
+        let cur = null; const lines = [];
+        content.items.forEach(it=>{
+          const y = Math.round(it.transform[5]);
+          if (!cur || Math.abs(cur.y - y) > 3){ if (cur) lines.push(cur.t); cur = { y, t:'' }; }
+          cur.t += it.str + ' ';
+        });
+        if (cur) lines.push(cur.t);
+        body += `<section class="flow"><h2>Page ${i}</h2>` +
+          lines.map(l=> l.replace(/\s+/g,' ').trim()).filter(Boolean).map(l=> `<p>${esc(l)}</p>`).join('') + '</section>';
+      }
+      setProgress(progressBar, progressWrap, 5 + Math.round((i/doc.numPages)*85));
+    }
+
+    const css = mode === 'layout'
+      ? `body{background:#f2f2f0;margin:0;padding:24px;font-family:Georgia,'Times New Roman',serif;}
+.page{position:relative;background:#fff;margin:0 auto 24px;box-shadow:0 2px 14px rgba(0,0,0,.15);overflow:hidden;max-width:100%;}
+.page span{position:absolute;white-space:pre;line-height:1;}`
+      : `body{background:#fff;margin:0;padding:32px 20px;font-family:Georgia,'Times New Roman',serif;line-height:1.7;color:#1a1a1a;}
+.flow{max-width:70ch;margin:0 auto 40px;} .flow h2{font-size:15px;letter-spacing:.04em;color:#888;font-family:system-ui,sans-serif;}
+.flow p{margin:0 0 12px;}`;
+
+    const html = `<!doctype html>\n<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(baseName(file.name))}</title><style>${css}</style></head>
+<body>${body}</body></html>`;
+
+    downloadBlob(new Blob([html], { type:'text/html' }), baseName(file.name) + '.html');
+    setProgress(progressBar, progressWrap, 100);
+    setStatus(status, 'Saved — open the .html file in any browser.', 'ok');
+  }catch(e){ console.error(e); setStatus(status, 'Could not read that PDF. It may be password-protected.', 'err'); }
+  goBtn.disabled = false;
+});
+</script>
+</body>
+</html>
