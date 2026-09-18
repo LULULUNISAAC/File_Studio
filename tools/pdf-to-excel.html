@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF to Excel — File Studio</title>
+<meta name="description" content="Detect tables in a PDF and export them to Excel. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2242%22 fill=%22none%22 stroke=%22%23F2F2F0%22 stroke-width=%226%22/><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22none%22 stroke=%22%237C5CFF%22 stroke-width=%226%22/></svg>">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-base="../">
+
+<header id="chrome-nav"></header>
+
+<main class="tool-page">
+  <div class="tool-header">
+    <div class="wrap">
+      <span class="kicker">From PDF</span>
+      <h1>PDF → Excel</h1>
+      <p>Find the rows and columns hiding in a PDF's text and send them to a spreadsheet — one sheet per page.</p>
+    </div>
+  </div>
+
+  <div class="wrap tool-body">
+    <div>
+      <div class="panel">
+        <h3>Upload PDF</h3>
+        <div class="dropzone" id="dz" role="button">
+          <p><strong>Click to choose</strong> or drop a PDF file here</p>
+          <input type="file" id="fileInput" accept="application/pdf">
+        </div>
+        <div class="status" id="status"></div>
+        <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+        <div class="field" style="margin-top:16px;">
+          <label for="tol">Column sensitivity</label>
+          <input type="range" id="tol" min="4" max="40" value="14">
+          <div class="range-row"><span>Split more columns</span><span id="tolVal">14</span><span>Merge into fewer</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Detected table</h3>
+        <div class="output-empty" id="empty">The rows found in your PDF appear here.</div>
+        <div class="table-wrap" id="tableWrap" style="display:none;"></div>
+        <button class="btn btn-accent btn-block" id="goBtn" disabled style="margin-top:16px;">Save as .xlsx</button>
+        <div class="note"><strong>Reality check.</strong> PDFs don't store tables — only text at positions — so columns are worked out from where the words sit. Ruled, evenly spaced tables come out well; nested cells, wrapped lines and multi-column layouts need tidying afterwards. Always compare the sheet against the PDF.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<section class="related" id="related"></section>
+<footer id="chrome-footer"></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="../assets/helpers.js"></script>
+<script>
+usePdfJs();
+let file = null, sheets = [];
+const dz = document.getElementById('dz'), fileInput = document.getElementById('fileInput');
+const status = document.getElementById('status'), goBtn = document.getElementById('goBtn');
+const progressWrap = document.getElementById('progressWrap'), progressBar = document.getElementById('progressBar');
+const tableWrap = document.getElementById('tableWrap'), empty = document.getElementById('empty');
+const tol = document.getElementById('tol');
+tol.addEventListener('input', ()=>{ document.getElementById('tolVal').textContent = tol.value; if (file) run(); });
+
+wireDropzone(dz, fileInput, (fs)=>{ const f = fs.find(isPdf); if (!f) return; file = f; run(); });
+
+async function run(){
+  setStatus(status, 'Looking for rows and columns…');
+  setProgress(progressBar, progressWrap, 5);
+  try{
+    const doc = await loadPdfJsDoc(file);
+    const gap = parseInt(tol.value);
+    sheets = [];
+    for (let i=1;i<=doc.numPages;i++){
+      const content = await (await doc.getPage(i)).getTextContent();
+      const items = content.items
+        .filter(it=> it.str.trim())
+        .map(it=> ({ x: it.transform[4], y: Math.round(it.transform[5]), s: it.str.trim() }));
+      if (!items.length) continue;
+
+      // rows: group by y
+      const rows = [];
+      items.sort((a,b)=> b.y - a.y || a.x - b.x).forEach(it=>{
+        const row = rows.find(r=> Math.abs(r.y - it.y) <= 3);
+        if (row) row.items.push(it); else rows.push({ y: it.y, items:[it] });
+      });
+
+      // columns: cluster all x starts across the page
+      const xs = items.map(it=> it.x).sort((a,b)=> a-b);
+      const cols = [];
+      xs.forEach(x=>{ if (!cols.length || x - cols[cols.length-1] > gap) cols.push(x); });
+
+      const aoa = rows.map(r=>{
+        const cells = new Array(cols.length).fill('');
+        r.items.sort((a,b)=> a.x - b.x).forEach(it=>{
+          let c = 0;
+          for (let k=0;k<cols.length;k++) if (it.x >= cols[k] - gap/2) c = k;
+          cells[c] = cells[c] ? cells[c] + ' ' + it.s : it.s;
+        });
+        return cells;
+      });
+      sheets.push({ name: `Page ${i}`, aoa });
+      setProgress(progressBar, progressWrap, 5 + Math.round((i/doc.numPages)*90));
+    }
+
+    if (!sheets.length){
+      empty.style.display = 'block'; tableWrap.style.display = 'none'; goBtn.disabled = true;
+      setStatus(status, 'No text layer found — this PDF is a scan, so there are no cells to read.', 'err');
+      return;
+    }
+    const first = sheets[0].aoa.slice(0, 40);
+    tableWrap.innerHTML = `<table class="preview"><tbody>${first.map(r=>
+      `<tr>${r.map(c=> `<td>${String(c).replace(/[<>&]/g, m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    empty.style.display = 'none'; tableWrap.style.display = 'block';
+    goBtn.disabled = false;
+    setProgress(progressBar, progressWrap, 100);
+    const rowCount = sheets.reduce((a,s)=> a + s.aoa.length, 0);
+    setStatus(status, `${rowCount} rows across ${sheets.length} page${sheets.length>1?'s':''}. Drag the slider if the columns look wrong.`, 'ok');
+  }catch(e){ console.error(e); setStatus(status, 'Could not read that PDF. It may be password-protected.', 'err'); }
+}
+
+goBtn.addEventListener('click', ()=>{
+  if (!sheets.length) return;
+  const wb = XLSX.utils.book_new();
+  sheets.forEach(s=> XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s.aoa), s.name.slice(0,31)));
+  const out = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+  downloadBlob(new Blob([out], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), baseName(file.name) + '.xlsx');
+  setStatus(status, 'Saved — check the numbers against the original before using them.', 'ok');
+});
+</script>
+</body>
+</html>
