@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="100%" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="45%" r="70%">
+      <stop offset="0%" stop-color="#15151d"/>
+      <stop offset="100%" stop-color="#0b0b0f"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="400" fill="url(#bgGrad)"/>
+
+  <!-- ============ OUTER CAGE (white icosphere, slow tumble) ============ -->
+  <g transform="translate(600 190)" filter="url(#glow)">
+    <g>
+      <animateTransform attributeName="transform" type="rotate"
+        from="0" to="360" dur="40s" repeatCount="indefinite"/>
+      <animateTransform attributeName="transform" type="scale"
+        values="1;1.06;1" dur="9s" repeatCount="indefinite" additive="sum"/>
+      <g fill="none" stroke="#F2F2F0" stroke-width="0.9" stroke-linecap="round" opacity="0.55">
+
+        <!-- icosahedron edges, projected as a wireframe sphere -->
+        <polygon points="0,-120 70,-97 70,-97"/>
+        <line x1="0" y1="-120" x2="114" y2="-37"/>
+        <line x1="0" y1="-120" x2="70" y2="97"/>
+        <line x1="0" y1="-120" x2="-70" y2="97"/>
+        <line x1="0" y1="-120" x2="-114" y2="-37"/>
+
+        <line x1="114" y1="-37" x2="70" y2="97"/>
+        <line x1="114" y1="-37" x2="-70" y2="97"/>
+        <line x1="70" y1="97" x2="-70" y2="97"/>
+        <line x1="-70" y1="97" x2="-114" y2="-37"/>
+        <line x1="-114" y1="-37" x2="114" y2="-37"/>
+
+        <!-- inner ring (equator) -->
+        <ellipse cx="0" cy="0" rx="120" ry="34" opacity="0.5"/>
+
+        <!-- secondary ring rotated -->
+        <ellipse cx="0" cy="0" rx="120" ry="34" opacity="0.35"
+          transform="rotate(60)"/>
+        <ellipse cx="0" cy="0" rx="120" ry="34" opacity="0.35"
+          transform="rotate(-60)"/>
+
+        <!-- vertex nodes -->
+        <g fill="#7C5CFF" stroke="none">
+          <circle cx="0" cy="-120" r="2.6"/>
+          <circle cx="114" cy="-37" r="2.6"/>
+          <circle cx="70" cy="97" r="2.6"/>
+          <circle cx="-70" cy="97" r="2.6"/>
+          <circle cx="-114" cy="-37" r="2.6"/>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <!-- ============ INNER CORE (purple, counter-rotating faster) ============ -->
+  <g transform="translate(600 190)" filter="url(#glow)">
+    <g>
+      <animateTransform attributeName="transform" type="rotate"
+        from="360" to="0" dur="18s" repeatCount="indefinite"/>
+      <g fill="none" stroke="#7C5CFF" stroke-width="1.4" stroke-linecap="round" opacity="0.9">
+
+        <polygon points="0,-55 52,-18 32,45 -32,45 -52,-18" />
+        <line x1="0" y1="-55" x2="0" y2="55"/>
+        <line x1="52" y1="-18" x2="-32" y2="45"/>
+        <line x1="-52" y1="-18" x2="32" y2="45"/>
+
+        <ellipse cx="0" cy="0" rx="55" ry="16" opacity="0.7"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- ============ MOTES (drifting dots on a halo) ============ -->
+  <g transform="translate(600 190)">
+    <g>
+      <animateTransform attributeName="transform" type="rotate"
+        from="0" to="360" dur="60s" repeatCount="indefinite"/>
+      <g fill="#F2F2F0" opacity="0.6">
+        <circle cx="180" cy="0"   r="1.6"/>
+        <circle cx="156" cy="90"  r="1.4"/>
+        <circle cx="90"  cy="156" r="1.8"/>
+        <circle cx="0"   cy="180" r="1.5"/>
+        <circle cx="-90" cy="156" r="1.7"/>
+        <circle cx="-156" cy="90" r="1.3"/>
+        <circle cx="-180" cy="0"  r="1.9"/>
+        <circle cx="-156" cy="-90" r="1.5"/>
+        <circle cx="-90" cy="-156" r="1.6"/>
+        <circle cx="0"   cy="-180" r="1.4"/>
+        <circle cx="90"  cy="-156" r="1.8"/>
+        <circle cx="156" cy="-90"  r="1.5"/>
+      </g>
+      <g fill="#7C5CFF" opacity="0.85">
+        <circle cx="198" cy="40"  r="2.2"/>
+        <circle cx="120" cy="170" r="2.0"/>
+        <circle cx="-40" cy="198" r="2.3"/>
+        <circle cx="-170" cy="120" r="2.1"/>
+        <circle cx="-198" cy="-40" r="2.2"/>
+        <circle cx="-120" cy="-170" r="2.0"/>
+        <circle cx="40"  cy="-198" r="2.3"/>
+        <circle cx="170" cy="-120" r="2.1"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- ============ TITLE ============ -->
+  <text x="600" y="360" text-anchor="middle"
+    font-family="ui-sans-serif, system-ui, -apple-system, sans-serif"
+    font-size="22" font-weight="600" fill="#F2F2F0"
+    letter-spacing="0.5">
+    File Studio
+  </text>
+  <text x="600" y="386" text-anchor="middle"
+    font-family="ui-sans-serif, system-ui, -apple-system, sans-serif"
+    font-size="13" fill="#8a8a96" letter-spacing="0.3">
+    26 file tools that never leave your browser
+  </text>
+</svg>
