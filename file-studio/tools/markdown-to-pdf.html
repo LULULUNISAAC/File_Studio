@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Markdown to PDF — File Studio</title>
+<meta name="description" content="Turn Markdown into a typeset PDF. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2242%22 fill=%22none%22 stroke=%22%23F2F2F0%22 stroke-width=%226%22/><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22none%22 stroke=%22%237C5CFF%22 stroke-width=%226%22/></svg>">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-base="../">
+
+<header id="chrome-nav"></header>
+
+<main class="tool-page">
+  <div class="tool-header">
+    <div class="wrap">
+      <span class="kicker">To PDF</span>
+      <h1>Markdown → PDF</h1>
+      <p>Write or paste Markdown, watch it typeset itself, and save a PDF — handy for notes, readmes and handouts.</p>
+    </div>
+  </div>
+
+  <div class="wrap tool-body">
+    <div>
+      <div class="panel">
+        <h3>Your Markdown</h3>
+        <div class="field">
+          <textarea id="input" placeholder="# Title&#10;&#10;Write **Markdown** here — headings, lists, tables, code and quotes all work."></textarea>
+        </div>
+        <div class="dropzone" id="dz" role="button">
+          <p><strong>Or click to open</strong> a .md file</p>
+          <input type="file" id="fileInput" accept=".md,.markdown,text/markdown">
+        </div>
+        <div class="status" id="status"></div>
+        <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Preview</h3>
+        <div style="background:#fff;border-radius:10px;max-height:340px;overflow:auto;">
+          <div class="print-sheet" id="preview"><p style="color:#888;">Typeset output appears here as you type.</p></div>
+        </div>
+        <div class="field" style="margin-top:18px;">
+          <label for="paper">Paper</label>
+          <select id="paper"><option value="a4">A4</option><option value="letter">US Letter</option></select>
+        </div>
+        <button class="btn btn-accent btn-block" id="goBtn">Save as PDF</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<section class="related" id="related"></section>
+<footer id="chrome-footer"></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="../assets/helpers.js"></script>
+<script>
+const input = document.getElementById('input'), preview = document.getElementById('preview');
+const status = document.getElementById('status'), goBtn = document.getElementById('goBtn');
+const progressWrap = document.getElementById('progressWrap'), progressBar = document.getElementById('progressBar');
+let name = 'document';
+
+function render(){
+  const md = input.value;
+  preview.innerHTML = md.trim() ? marked.parse(md) : '<p style="color:#888;">Typeset output appears here as you type.</p>';
+}
+input.addEventListener('input', render);
+
+wireDropzone(document.getElementById('dz'), document.getElementById('fileInput'), async (fs)=>{
+  const f = fs[0]; if (!f) return;
+  input.value = await readFileAsText(f);
+  name = baseName(f.name);
+  render();
+  setStatus(status, `"${f.name}" loaded.`, 'ok');
+});
+
+goBtn.addEventListener('click', async ()=>{
+  if (!input.value.trim()){ setStatus(status, 'Write or open some Markdown first.', 'err'); return; }
+  goBtn.disabled = true;
+  setStatus(status, 'Typesetting…');
+  setProgress(progressBar, progressWrap, 25);
+  const holder = makePrintSheet(marked.parse(input.value));
+  try{
+    const paper = document.getElementById('paper').value === 'a4' ? [595.28,841.89] : [612,792];
+    const bytes = await elementToPdfBytes(holder.firstChild, { margin: 48, pageSize: paper });
+    downloadBlob(new Blob([bytes], {type:'application/pdf'}), name + '.pdf');
+    setProgress(progressBar, progressWrap, 100);
+    setStatus(status, 'Saved as PDF.', 'ok');
+  }catch(e){ console.error(e); setStatus(status, 'Typesetting failed. Try a shorter document.', 'err'); }
+  holder.remove();
+  goBtn.disabled = false;
+});
+</script>
+</body>
+</html>

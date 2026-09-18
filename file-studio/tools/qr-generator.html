@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QR Generator — File Studio</title>
+<meta name="description" content="Turn any link or line of text into a downloadable QR code. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2242%22 fill=%22none%22 stroke=%22%23F2F2F0%22 stroke-width=%226%22/><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22none%22 stroke=%22%237C5CFF%22 stroke-width=%226%22/></svg>">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-base="../">
+
+<header id="chrome-nav"></header>
+
+<main class="tool-page">
+  <div class="tool-header">
+    <div class="wrap">
+      <span class="kicker">Everything else</span>
+      <h1>QR generator</h1>
+      <p>Type a link, a phone number or a few words and get a QR code you can print or share.</p>
+    </div>
+  </div>
+
+  <div class="wrap tool-body">
+    <div>
+      <div class="panel">
+        <h3>Content</h3>
+        <div class="field">
+          <label for="qrText">Text or link</label>
+          <input type="text" id="qrText" placeholder="https://example.com">
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="qrSize">Size</label>
+            <select id="qrSize">
+              <option value="256">Small — 256 px</option>
+              <option value="512" selected>Medium — 512 px</option>
+              <option value="1024">Large — 1024 px</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="qrLevel">Error tolerance</label>
+            <select id="qrLevel">
+              <option value="L">Low — densest code</option>
+              <option value="M" selected>Medium</option>
+              <option value="H">High — survives damage</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="fg">Code colour</label><input type="color" id="fg" value="#0A0A0B"></div>
+          <div class="field"><label for="bg">Background</label><input type="color" id="bg" value="#FFFFFF"></div>
+        </div>
+        <button class="btn btn-accent btn-block" id="genBtn">Generate QR code</button>
+        <div class="status" id="status"></div>
+        <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Preview</h3>
+        <div class="qr-preview" id="preview">
+          <span style="color:#999;font-size:13.5px;">Your QR code will appear here.</span>
+        </div>
+        <button class="btn btn-ghost btn-block" id="downloadBtn" style="display:none;margin-top:16px;">Download PNG</button>
+        <div class="note"><strong>Before you print it:</strong> scan it with your own phone. Very long links with a high error tolerance make a dense code that cheap scanners struggle with.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<section class="related" id="related"></section>
+<footer id="chrome-footer"></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="../assets/helpers.js"></script>
+<script>
+const qrText = document.getElementById('qrText'), qrSize = document.getElementById('qrSize');
+const genBtn = document.getElementById('genBtn'), preview = document.getElementById('preview');
+const downloadBtn = document.getElementById('downloadBtn'), status = document.getElementById('status');
+
+function generate(){
+  const text = qrText.value.trim();
+  if (!text){ setStatus(status, 'Type some text or a link first.', 'err'); return; }
+  const size = parseInt(qrSize.value);
+  preview.innerHTML = '';
+  const holder = document.createElement('div');
+  preview.appendChild(holder);
+  new QRCode(holder, {
+    text, width: size, height: size,
+    colorDark: document.getElementById('fg').value,
+    colorLight: document.getElementById('bg').value,
+    correctLevel: QRCode.CorrectLevel[document.getElementById('qrLevel').value]
+  });
+  setTimeout(()=>{
+    const canvas = holder.querySelector('canvas');
+    if (canvas) canvas.style.maxWidth = '100%';
+    const img = holder.querySelector('img');
+    if (img) img.style.maxWidth = '100%';
+    downloadBtn.style.display = 'inline-flex';
+    setStatus(status, 'QR code ready — scan it once to check before printing.', 'ok');
+  }, 60);
+}
+
+genBtn.addEventListener('click', generate);
+qrText.addEventListener('keydown', (e)=>{ if (e.key === 'Enter') generate(); });
+
+downloadBtn.addEventListener('click', async ()=>{
+  const canvas = preview.querySelector('canvas');
+  if (!canvas){ setStatus(status, 'Generate a code first.', 'err'); return; }
+  downloadBlob(await canvasToBlob(canvas, 'image/png'), 'qr-code.png');
+});
+</script>
+</body>
+</html>

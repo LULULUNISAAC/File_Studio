@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF details — File Studio</title>
+<meta name="description" content="See and edit a PDF's title, author, subject and keywords. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2242%22 fill=%22none%22 stroke=%22%23F2F2F0%22 stroke-width=%226%22/><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22none%22 stroke=%22%237C5CFF%22 stroke-width=%226%22/></svg>">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-base="../">
+
+<header id="chrome-nav"></header>
+
+<main class="tool-page">
+  <div class="tool-header">
+    <div class="wrap">
+      <span class="kicker">Organise</span>
+      <h1>PDF details</h1>
+      <p>See what a PDF says about itself — size, page count, producer and dates — and rewrite the fields that follow the file around.</p>
+    </div>
+  </div>
+
+  <div class="wrap tool-body">
+    <div>
+      <div class="panel">
+        <h3>Upload PDF</h3>
+        <div class="dropzone" id="dz" role="button">
+          <p><strong>Click to choose</strong> or drop a PDF file here</p>
+          <input type="file" id="fileInput" accept="application/pdf">
+        </div>
+        <div class="status" id="status"></div>
+        <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+        <div class="table-wrap" id="infoWrap" style="display:none;margin-top:18px;">
+          <table class="preview"><tbody id="infoBody"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Edit details</h3>
+        <div class="field"><label for="mTitle">Title</label><input type="text" id="mTitle"></div>
+        <div class="field"><label for="mAuthor">Author</label><input type="text" id="mAuthor"></div>
+        <div class="field"><label for="mSubject">Subject</label><input type="text" id="mSubject"></div>
+        <div class="field"><label for="mKeywords">Keywords</label><input type="text" id="mKeywords" placeholder="comma, separated"></div>
+        <div class="check"><input type="checkbox" id="strip"><label for="strip" style="margin:0;">Clear producer and creator instead of keeping them</label></div>
+        <button class="btn btn-accent btn-block" id="saveBtn" disabled>Save details</button>
+        <div class="note"><strong>Why it matters.</strong> These fields travel with the file. A document exported from a template often still carries someone else's name.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<section class="related" id="related"></section>
+<footer id="chrome-footer"></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="../assets/helpers.js"></script>
+<script>
+let file = null;
+const dz = document.getElementById('dz'), fileInput = document.getElementById('fileInput');
+const status = document.getElementById('status'), saveBtn = document.getElementById('saveBtn');
+const progressWrap = document.getElementById('progressWrap'), progressBar = document.getElementById('progressBar');
+const infoWrap = document.getElementById('infoWrap'), infoBody = document.getElementById('infoBody');
+
+function row(k, v){ return `<tr><th style="width:38%">${k}</th><td>${v || '—'}</td></tr>`; }
+
+wireDropzone(dz, fileInput, async (fs)=>{
+  const f = fs.find(isPdf); if (!f) return;
+  try{
+    const { PDFDocument } = PDFLib;
+    const doc = await PDFDocument.load(await readFileAsArrayBuffer(f));
+    file = f; saveBtn.disabled = false;
+    const p0 = doc.getPage(0).getSize();
+    const d = (x)=> { try { return x ? x.toLocaleString() : ''; } catch(e){ return ''; } };
+    infoBody.innerHTML = [
+      row('File name', f.name), row('File size', formatBytes(f.size)),
+      row('Pages', doc.getPageCount()),
+      row('First page size', `${Math.round(p0.width)} × ${Math.round(p0.height)} pt`),
+      row('Title', doc.getTitle()), row('Author', doc.getAuthor()),
+      row('Subject', doc.getSubject()), row('Keywords', doc.getKeywords()),
+      row('Creator', doc.getCreator()), row('Producer', doc.getProducer()),
+      row('Created', d(doc.getCreationDate())), row('Modified', d(doc.getModificationDate()))
+    ].join('');
+    infoWrap.style.display = 'block';
+    document.getElementById('mTitle').value = doc.getTitle() || '';
+    document.getElementById('mAuthor').value = doc.getAuthor() || '';
+    document.getElementById('mSubject').value = doc.getSubject() || '';
+    document.getElementById('mKeywords').value = doc.getKeywords() || '';
+    setStatus(status, 'Details read from the file.', 'ok');
+  }catch(e){ setStatus(status, 'That PDF could not be opened. It may be password-protected.', 'err'); }
+});
+
+saveBtn.addEventListener('click', async ()=>{
+  if (!file) return;
+  saveBtn.disabled = true;
+  setProgress(progressBar, progressWrap, 30);
+  try{
+    const { PDFDocument } = PDFLib;
+    const doc = await PDFDocument.load(await readFileAsArrayBuffer(file));
+    doc.setTitle(document.getElementById('mTitle').value);
+    doc.setAuthor(document.getElementById('mAuthor').value);
+    doc.setSubject(document.getElementById('mSubject').value);
+    doc.setKeywords(document.getElementById('mKeywords').value.split(',').map(s=>s.trim()).filter(Boolean));
+    doc.setModificationDate(new Date());
+    if (document.getElementById('strip').checked){ doc.setProducer(''); doc.setCreator(''); }
+    downloadBlob(new Blob([await doc.save()], {type:'application/pdf'}), baseName(file.name) + '-updated.pdf');
+    setProgress(progressBar, progressWrap, 100);
+    setStatus(status, 'Saved — the copy in your downloads carries the new details.', 'ok');
+  }catch(e){ console.error(e); setStatus(status, 'Could not save that file. Try reloading it.', 'err'); }
+  saveBtn.disabled = false;
+});
+</script>
+</body>
+</html>
