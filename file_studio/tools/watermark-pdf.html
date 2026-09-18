@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watermark PDF — File Studio</title>
+<meta name="description" content="Add a text or image watermark across every page of a PDF. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2242%22 fill=%22none%22 stroke=%22%23F2F2F0%22 stroke-width=%226%22/><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22none%22 stroke=%22%237C5CFF%22 stroke-width=%226%22/></svg>">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-base="../">
+
+<header id="chrome-nav"></header>
+
+<main class="tool-page">
+  <div class="tool-header">
+    <div class="wrap">
+      <span class="kicker">Protect</span>
+      <h1>Watermark PDF</h1>
+      <p>Lay a word like “Draft” or “Confidential” — or your own logo — across the pages, at the angle and weight you want.</p>
+    </div>
+  </div>
+
+  <div class="wrap tool-body">
+    <div>
+      <div class="panel">
+        <h3>Upload PDF</h3>
+        <div class="dropzone" id="dz" role="button">
+          <p><strong>Click to choose</strong> or drop a PDF file here</p>
+          <input type="file" id="fileInput" accept="application/pdf">
+        </div>
+        <div class="status" id="status"></div>
+        <div class="progress" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+      </div>
+      <div class="panel">
+        <h3>Logo watermark</h3>
+        <p class="panel-hint">Optional — a PNG with a transparent background works best.</p>
+        <div class="dropzone" id="logoDz" role="button">
+          <p><strong>Click to choose</strong> an image, or leave this empty for text</p>
+          <input type="file" id="logoInput" accept="image/png,image/jpeg">
+        </div>
+        <div class="status" id="logoStatus"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Appearance</h3>
+        <div class="field"><label for="text">Watermark text</label><input type="text" id="text" value="CONFIDENTIAL"></div>
+        <div class="field-row">
+          <div class="field"><label for="size">Text size</label><input type="number" id="size" value="60" min="8" max="200"></div>
+          <div class="field"><label for="angle">Angle</label><input type="number" id="angle" value="45" min="-90" max="90"></div>
+        </div>
+        <div class="field"><label for="colour">Colour</label><input type="color" id="colour" value="#7C5CFF"></div>
+        <div class="field">
+          <label for="opacity">Strength</label>
+          <input type="range" id="opacity" min="5" max="100" value="18">
+          <div class="range-row"><span>Barely there</span><span id="opacityVal">18%</span><span>Solid</span></div>
+        </div>
+        <div class="check"><input type="checkbox" id="tile"><label for="tile" style="margin:0;">Repeat across the whole page</label></div>
+        <div class="field"><label for="pages">Pages</label><input type="text" id="pages" placeholder="all pages — or 1-3, 7"></div>
+        <button class="btn btn-accent btn-block" id="goBtn" disabled>Add watermark</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<section class="related" id="related"></section>
+<footer id="chrome-footer"></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="../assets/helpers.js"></script>
+<script>
+let file = null, logoBytes = null, logoIsPng = true;
+const dz = document.getElementById('dz'), fileInput = document.getElementById('fileInput');
+const status = document.getElementById('status'), goBtn = document.getElementById('goBtn');
+const progressWrap = document.getElementById('progressWrap'), progressBar = document.getElementById('progressBar');
+const opacity = document.getElementById('opacity');
+opacity.addEventListener('input', ()=> document.getElementById('opacityVal').textContent = opacity.value + '%');
+
+wireDropzone(dz, fileInput, (fs)=>{
+  const f = fs.find(isPdf); if (!f) return;
+  file = f; goBtn.disabled = false;
+  setStatus(status, `"${f.name}" ready.`, 'ok');
+});
+
+wireDropzone(document.getElementById('logoDz'), document.getElementById('logoInput'), async (fs)=>{
+  const f = fs.find(x=> x.type.startsWith('image/')); if (!f) return;
+  logoBytes = await readFileAsArrayBuffer(f);
+  logoIsPng = f.type === 'image/png';
+  setStatus(document.getElementById('logoStatus'), `Using "${f.name}" as the watermark instead of text.`, 'ok');
+});
+
+function hexToRgb(hex){
+  const n = parseInt(hex.slice(1), 16);
+  return [((n>>16)&255)/255, ((n>>8)&255)/255, (n&255)/255];
+}
+
+goBtn.addEventListener('click', async ()=>{
+  if (!file) return;
+  goBtn.disabled = true;
+  setStatus(status, 'Stamping…');
+  setProgress(progressBar, progressWrap, 15);
+  try{
+    const { PDFDocument, StandardFonts, rgb, degrees } = PDFLib;
+    const pdf = await PDFDocument.load(await readFileAsArrayBuffer(file));
+    const font = await pdf.embedFont(StandardFonts.HelveticaBold);
+    const text = winAnsi(document.getElementById('text').value || 'CONFIDENTIAL');
+    const size = parseInt(document.getElementById('size').value) || 60;
+    const angle = parseInt(document.getElementById('angle').value) || 0;
+    const alpha = parseInt(opacity.value)/100;
+    const tile = document.getElementById('tile').checked;
+    const [r,g,b] = hexToRgb(document.getElementById('colour').value);
+    const pages = pdf.getPages();
+    const wanted = new Set(parseRanges(document.getElementById('pages').value, pages.length));
+    const logo = logoBytes ? (logoIsPng ? await pdf.embedPng(logoBytes) : await pdf.embedJpg(logoBytes)) : null;
+
+    pages.forEach((page, i)=>{
+      if (!wanted.has(i)) return;
+      const { width, height } = page.getSize();
+      const spots = tile
+        ? [[0.2,0.2],[0.6,0.2],[0.2,0.5],[0.6,0.5],[0.2,0.8],[0.6,0.8]]
+        : [[0.5,0.5]];
+      spots.forEach(([fx, fy])=>{
+        if (logo){
+          const w = width * (tile ? 0.26 : 0.5);
+          const h = w * (logo.height/logo.width);
+          page.drawImage(logo, { x: width*fx - (tile?0:w/2), y: height*fy - h/2, width: w, height: h, opacity: alpha, rotate: degrees(angle) });
+        } else {
+          const w = font.widthOfTextAtSize(text, tile ? size*0.5 : size);
+          const s = tile ? size*0.5 : size;
+          page.drawText(text, {
+            x: width*fx - (tile ? w/2 : w/2), y: height*fy - s/2,
+            size: s, font, color: rgb(r,g,b), opacity: alpha, rotate: degrees(angle)
+          });
+        }
+      });
+      setProgress(progressBar, progressWrap, 15 + Math.round(((i+1)/pages.length)*75));
+    });
+
+    downloadBlob(new Blob([await pdf.save()], {type:'application/pdf'}), baseName(file.name) + '-watermarked.pdf');
+    setProgress(progressBar, progressWrap, 100);
+    setStatus(status, `Watermark added to ${wanted.size} page${wanted.size>1?'s':''}.`, 'ok');
+  }catch(e){ console.error(e); setStatus(status, 'Could not write to that PDF. It may be password-protected.', 'err'); }
+  goBtn.disabled = false;
+});
+</script>
+</body>
+</html>
