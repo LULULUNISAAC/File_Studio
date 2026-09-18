@@ -1,3 +1,9 @@
+<div align="center">
+  <img src="assets/banner.svg" alt="File Studio" width="100%">
+</div>
+
+
+
 # File Studio
 
 A static toolkit of file utilities — merge PDFs, convert images, run OCR, generate QR codes, and more — that run **entirely in the browser**. There is no backend, no file upload, and no tracking of any kind which mean this is a process happens 100% locally on your own device. It is completely private and secure.
